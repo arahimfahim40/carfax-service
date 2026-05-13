@@ -1,0 +1,15 @@
+allowBuilds:
+  '@nestjs/core': true
+  '@prisma/engines': true
+  '@prisma/client': true
+  '@scarf/scarf': true
+  prisma: true
+  unrs-resolver: true
+  '@swc/core': true
+onlyBuiltDependencies:
+  - '@nestjs/core'
+  - '@prisma/engines'
+  - '@prisma/client'
+  - '@scarf/scarf'
+  - prisma
+  - unrs-resolver

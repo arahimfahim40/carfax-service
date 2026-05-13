@@ -1,0 +1,65 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum request_status {
+  pending
+  success
+  error
+}
+
+model request_logs {
+  id Int @id @default(autoincrement())
+
+  method       String  @db.VarChar(10)
+  path         String  @db.VarChar(255)
+  query_params Json?
+  request_ip   String? @db.VarChar(45)
+  user_agent   String? @db.VarChar(500)
+
+  started_at  DateTime      @default(now())
+  finished_at DateTime?
+  duration_ms Int?
+  status      request_status @default(pending)
+  http_status Int?
+
+  vin                   String?  @db.VarChar(17)
+  logged_in             Boolean?
+  used_existing_session Boolean?
+  mfa_triggered         Boolean?
+  captcha_triggered     Boolean?
+
+  vhr_report_id Int?
+  vhr_report    vhr_reports? @relation(fields: [vhr_report_id], references: [id])
+
+  error_code    String? @db.VarChar(64)
+  error_message String?
+
+  @@index([started_at(sort: Desc)])
+  @@index([vin])
+  @@index([status])
+}
+
+model vhr_reports {
+  id         Int      @id @default(autoincrement())
+  vin        String   @db.VarChar(17)
+  created_at DateTime @default(now())
+
+  json_payload Json
+
+  pdf_name String @db.VarChar(255)
+  pdf_url  String @db.VarChar(1000)
+
+  request_logs request_logs[]
+
+  @@index([vin])
+  @@index([created_at(sort: Desc)])
+}
