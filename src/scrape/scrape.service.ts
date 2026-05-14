@@ -5,14 +5,13 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { mkdir, writeFile } from 'fs/promises';
-import { dirname, resolve } from 'path';
+import { resolve } from 'path';
 import { Page } from 'playwright';
 import { PlaywrightService } from '../playwright/playwright.service';
 import { MfaCodeService } from './mfa-code.service';
 import { VhrReportService } from '../vhr-report/vhr-report.service';
 
 const CARFAX_ONLINE_URL = 'https://www.carfaxonline.com/login';
-const AUTH_STATE_PATH = resolve(process.cwd(), '.auth/carfax.json');
 const REPORTS_DIR = resolve(process.cwd(), '.reports');
 const VHR_API = (vin: string, api: boolean) => api ? `https://www.carfaxonline.com/vhr/${vin}` : `https://dealers.carfax.com/api/vhr/${vin}`;
 
@@ -73,7 +72,6 @@ export class ScrapeService {
         let didLogin = false;
         if (this.isOnLoginPage(page)) {
           await this.login(page);
-          await this.saveSession(page);
           didLogin = true;
         }
 
@@ -128,7 +126,6 @@ export class ScrapeService {
           usedCachedReport: false,
         };
       },
-      { storageState: AUTH_STATE_PATH },
     );
   }
 
@@ -330,12 +327,6 @@ console.log("MFA change to email")
     }
   }
 
-  private async saveSession(page: Page): Promise<void> {
-    await mkdir(dirname(AUTH_STATE_PATH), { recursive: true });
-    await page.context().storageState({ path: AUTH_STATE_PATH });
-    this.logger.log(`Session saved to ${AUTH_STATE_PATH}`);
-  }
-
   private async fetchVhrReport(
     page: Page,
     vin: string,
@@ -361,8 +352,7 @@ console.log("MFA change to email")
         captchaTimeoutMs,
       );
       if (solved) {
-        this.logger.log('Datadome cookie updated — saving and retrying VHR');
-        await this.saveSession(page);
+        this.logger.log('Datadome cookie updated — retrying VHR');
         attempt = await this.attemptVhrCapture(page, uiUrl, apiUrl);
       } else {
         this.logger.warn('Datadome cookie did not update within timeout');

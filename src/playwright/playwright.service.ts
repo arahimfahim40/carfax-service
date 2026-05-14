@@ -4,11 +4,9 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
-import { existsSync, readFileSync } from 'fs';
 import {
   Browser,
   BrowserContext,
-  BrowserContextOptions,
   chromium,
   LaunchOptions,
   Page,
@@ -50,14 +48,11 @@ export class PlaywrightService implements OnModuleInit, OnModuleDestroy {
     this.browser = undefined;
   }
 
-  async withPage<T>(
-    fn: (page: Page) => Promise<T>,
-    options: { storageState?: string } = {},
-  ): Promise<T> {
+  async withPage<T>(fn: (page: Page) => Promise<T>): Promise<T> {
     if (this.isCdpBrowser) {
-      return this.withPageCdp(fn, options);
+      return this.withPageCdp(fn);
     }
-    const context = await this.newContext(options);
+    const context = await this.newContext();
     try {
       const page = await context.newPage();
       return await fn(page);
@@ -66,32 +61,16 @@ export class PlaywrightService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async newContext(
-    options: { storageState?: string } = {},
-  ): Promise<BrowserContext> {
+  async newContext(): Promise<BrowserContext> {
     const browser = await this.getBrowser();
-    const contextOptions: BrowserContextOptions = { viewport: null };
-    if (options.storageState && existsSync(options.storageState)) {
-      contextOptions.storageState = options.storageState;
-    }
-    return browser.newContext(contextOptions);
+    return browser.newContext({ viewport: null });
   }
 
-  private async withPageCdp<T>(
-    fn: (page: Page) => Promise<T>,
-    options: { storageState?: string },
-  ): Promise<T> {
+  private async withPageCdp<T>(fn: (page: Page) => Promise<T>): Promise<T> {
     const browser = await this.getBrowser();
     const context = browser.contexts()[0];
     if (!context) {
       throw new Error('CDP browser has no default context');
-    }
-
-    if (options.storageState && existsSync(options.storageState)) {
-      const state = JSON.parse(readFileSync(options.storageState, 'utf-8'));
-      if (Array.isArray(state.cookies) && state.cookies.length > 0) {
-        await context.addCookies(state.cookies);
-      }
     }
 
     const page = await context.newPage();
@@ -124,8 +103,23 @@ export class PlaywrightService implements OnModuleInit, OnModuleDestroy {
     let browser: Browser;
     if (bbKey && bbProject) {
       const bb = new Browserbase({ apiKey: bbKey });
+
+      let contextId = process.env.BROWSERBASE_CONTEXT_ID;
+      if (!contextId) {
+        const ctx = await bb.contexts.create({ projectId: bbProject });
+        contextId = ctx.id;
+        this.logger.warn(
+          `Browserbase context created: ${contextId} — set BROWSERBASE_CONTEXT_ID=${contextId} to reuse logged-in state across runs`,
+        );
+      } else {
+        this.logger.log(`Reusing Browserbase context: ${contextId}`);
+      }
+
       const session = await bb.sessions.create({
         projectId: bbProject,
+        browserSettings: {
+          context: { id: contextId, persist: true },
+        },
         proxies: process.env.BROWSERBASE_PROXIES !== 'false',
       });
       this.logger.log(`Browserbase session created: ${session.id}`);
