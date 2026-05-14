@@ -154,7 +154,6 @@ export class ScrapeService {
     const passwordInput = page
       .locator('input[name="password"]:not(.hide)')
       .first();
-    console.log(emailInput)
 
     const emailVisible = await emailInput
       .isVisible({ timeout: 5_000 })
@@ -188,7 +187,6 @@ export class ScrapeService {
     const passwordVisible = await passwordInput
       .isVisible({ timeout: 5_000 })
       .catch(() => false);
-console.log("passwordVisible",passwordVisible)
 
     if (!passwordVisible) {
       const visibleText = await page
