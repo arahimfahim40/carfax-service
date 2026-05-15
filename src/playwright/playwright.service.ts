@@ -12,6 +12,7 @@ import {
   Page,
 } from 'playwright';
 import Browserbase from '@browserbasehq/sdk';
+import type { SessionCreateParams } from '@browserbasehq/sdk/resources/sessions/sessions';
 
 @Injectable()
 export class PlaywrightService implements OnModuleInit, OnModuleDestroy {
@@ -104,24 +105,24 @@ export class PlaywrightService implements OnModuleInit, OnModuleDestroy {
     if (bbKey && bbProject) {
       const bb = new Browserbase({ apiKey: bbKey });
 
-      let contextId = process.env.BROWSERBASE_CONTEXT_ID;
-      if (!contextId) {
-        const ctx = await bb.contexts.create({ projectId: bbProject });
-        contextId = ctx.id;
-        this.logger.warn(
-          `Browserbase context created: ${contextId} — set BROWSERBASE_CONTEXT_ID=${contextId} to reuse logged-in state across runs`,
-        );
-      } else {
+      const contextId = process.env.BROWSERBASE_CONTEXT_ID;
+      const sessionParams: SessionCreateParams = {
+        projectId: bbProject,
+        proxies: process.env.BROWSERBASE_PROXIES !== 'false',
+      };
+
+      if (contextId) {
         this.logger.log(`Reusing Browserbase context: ${contextId}`);
+        sessionParams.browserSettings = {
+          context: { id: contextId, persist: true },
+        };
+      } else {
+        this.logger.log(
+          'No BROWSERBASE_CONTEXT_ID set — running fresh session (no cookie/auth persistence)',
+        );
       }
 
-      const session = await bb.sessions.create({
-        projectId: bbProject,
-        browserSettings: {
-          context: { id: contextId, persist: true },
-        },
-        proxies: process.env.BROWSERBASE_PROXIES !== 'false',
-      });
+      const session = await bb.sessions.create(sessionParams);
       this.logger.log(`Browserbase session created: ${session.id}`);
       this.logger.log(
         `Live view: https://www.browserbase.com/sessions/${session.id}`,
