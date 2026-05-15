@@ -12,7 +12,6 @@ import {
   Query,
   Req,
   UseGuards,
-  UseInterceptors,
 } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
@@ -25,7 +24,6 @@ import { SubmitMfaCodeDto } from './dto/submit-mfa-code.dto';
 import { ListLogsDto } from '../request-log/dto/list-logs.dto';
 import { LogStatsDto, parseWindowMs } from '../request-log/dto/log-stats.dto';
 import { ListReportsDto } from '../vhr-report/dto/list-reports.dto';
-import { RequestLogInterceptor } from '../request-log/request-log.interceptor';
 import { ApiKeyGuard } from '../common/guards/api-key.guard';
 
 @ApiTags('scrape')
@@ -39,7 +37,6 @@ export class ScrapeController {
   ) {}
 
   @Get('carfax-online')
-  @UseInterceptors(RequestLogInterceptor)
   @ApiOperation({
     summary: 'Open carfaxonline.com via Playwright and return basic page info',
   })

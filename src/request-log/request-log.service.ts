@@ -28,6 +28,40 @@ export class RequestLogService {
     return row.id;
   }
 
+
+  async logError(input: {
+    method: string;
+    path: string;
+    queryParams?: unknown;
+    requestIp?: string | null;
+    userAgent?: string | null;
+    httpStatus: number;
+    durationMs: number;
+    errorCode?: string | null;
+    errorMessage?: string | null;
+    vin?: string | null;
+  }): Promise<number> {
+    const row = await this.prisma.request_logs.create({
+      data: {
+        method: input.method,
+        path: input.path,
+        query_params: (input.queryParams ??
+          Prisma.JsonNull) as Prisma.InputJsonValue,
+        request_ip: input.requestIp ?? null,
+        user_agent: input.userAgent ?? null,
+        status: 'error',
+        http_status: input.httpStatus,
+        finished_at: new Date(),
+        duration_ms: input.durationMs,
+        error_code: input.errorCode ?? null,
+        error_message: input.errorMessage ?? null,
+        vin: input.vin ?? null,
+      },
+      select: { id: true },
+    });
+    return row.id;
+  }
+
   async finish(id: number, outcome: RequestLogFinishDto): Promise<void> {
     await this.prisma.request_logs.update({
       where: { id },

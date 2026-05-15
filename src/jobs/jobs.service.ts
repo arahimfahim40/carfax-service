@@ -10,20 +10,51 @@ export class JobsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(application: string, dto: CreateJobDto) {
+    const vin = dto.vin.toUpperCase();
+    const cached = await this.prisma.vhr_reports.findFirst({
+      where: { vin },
+      orderBy: { created_at: 'desc' },
+      select: { id: true },
+    });
+
+    if (cached) {
+      const job = await this.prisma.scrape_jobs.create({
+        data: {
+          vin,
+          user_id: dto.userId,
+          application,
+          callback_url: dto.callbackUrl ?? null,
+          max_attempts: dto.maxAttempts ?? 3,
+          metadata: (dto.metadata ?? undefined) as
+            | Prisma.InputJsonValue
+            | undefined,
+          status: 'done',
+          vhr_report_id: cached.id,
+          next_callback_at: dto.callbackUrl ? new Date() : null,
+        },
+      });
+      this.logger.log(
+        `Job satisfied from cache: id=${job.id} vin=${vin} vhrReportId=${cached.id} app=${application}`,
+      );
+      return { jobId: job.id, status: job.status, cached: true };
+    }
+
     const job = await this.prisma.scrape_jobs.create({
       data: {
-        vin: dto.vin.toUpperCase(),
+        vin,
         user_id: dto.userId,
         application,
         callback_url: dto.callbackUrl ?? null,
         max_attempts: dto.maxAttempts ?? 3,
-        metadata: (dto.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
+        metadata: (dto.metadata ?? undefined) as
+          | Prisma.InputJsonValue
+          | undefined,
       },
     });
     this.logger.log(
-      `Job queued: id=${job.id} vin=${job.vin} app=${application} user=${dto.userId}`,
+      `Job queued: id=${job.id} vin=${vin} app=${application} user=${dto.userId}`,
     );
-    return { jobId: job.id, status: job.status };
+    return { jobId: job.id, status: job.status, cached: false };
   }
 
   async findById(application: string, jobId: string) {
