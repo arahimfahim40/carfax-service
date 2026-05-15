@@ -16,6 +16,13 @@ enum request_status {
   error
 }
 
+enum job_status {
+  queued
+  processing
+  done
+  failed
+}
+
 model request_logs {
   id Int @id @default(autoincrement())
 
@@ -58,8 +65,61 @@ model vhr_reports {
   pdf_name String @db.VarChar(255)
   pdf_url  String @db.VarChar(1000)
 
+  user_id     Int? 
+  application String? @db.VarChar(64)
   request_logs request_logs[]
-
+  scrape_jobs scrape_jobs[]
   @@index([vin])
   @@index([created_at(sort: Desc)])
+}
+
+model scrape_jobs {
+  id           String     @id @default(uuid())
+  vin          String     @db.VarChar(17)
+  status       job_status @default(queued)
+
+  user_id      Int?
+  application  String     @db.VarChar(64)
+
+  attempts     Int        @default(0)
+  max_attempts Int        @default(3)
+  next_attempt_at DateTime @default(now())
+
+  error_code   String?    @db.VarChar(64)
+  error        String?
+
+  metadata     Json?
+
+  callback_url           String?   @db.VarChar(1000)
+  callback_attempts      Int       @default(0)
+  callback_delivered_at  DateTime?
+  next_callback_at       DateTime?
+
+  vhr_report_id Int?
+  vhr_report    vhr_reports? @relation(fields: [vhr_report_id], references: [id])
+
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  @@index([status, next_attempt_at])
+  @@index([application, user_id, created_at(sort: Desc)])
+  @@index([vin])
+  @@index([callback_url, callback_delivered_at, next_callback_at])
+}
+
+model api_clients {
+  id              Int       @id @default(autoincrement())
+  application     String    @unique @db.VarChar(64)
+  api_key_hash    String    @unique @db.VarChar(128)
+  webhook_secret  String    @db.VarChar(128)
+  revoked_at      DateTime?
+  created_at      DateTime  @default(now())
+  user_id         Int?
+  @@index([api_key_hash])
+}
+
+model system_config {
+  key        String   @id @db.VarChar(64)
+  value      String?
+  updated_at DateTime @updatedAt
 }

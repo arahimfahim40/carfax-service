@@ -1,13 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@db';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { PaginationProvider } from '../common/providers/pagination.provider';
 import { RequestLogStartDto } from './dto/request-log-start.dto';
 import { RequestLogFinishDto } from './dto/request-log-finish.dto';
 import { ListLogsDto } from './dto/list-logs.dto';
 
 @Injectable()
 export class RequestLogService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly pagination: PaginationProvider,
+  ) {}
 
   async start(input: RequestLogStartDto): Promise<number> {
     const row = await this.prisma.request_logs.create({
@@ -44,19 +48,28 @@ export class RequestLogService {
     });
   }
 
-  findRecent(filters: ListLogsDto) {
-    const { limit = 50, status, vin } = filters;
-    return this.prisma.request_logs.findMany({
-      where: {
-        ...(status ? { status } : {}),
-        ...(vin ? { vin } : {}),
-      },
+  async findRecent(filters: ListLogsDto) {
+    const { status, vin, ...paginationQuery } = filters;
+    const where = {
+      ...(status ? { status } : {}),
+      ...(vin ? { vin } : {}),
+    };
+    const { skip, take } = this.pagination.resolve(paginationQuery);
+    const data = await this.prisma.request_logs.findMany({
+      where,
       orderBy: { started_at: 'desc' },
-      take: limit,
+      skip,
+      take,
       include: {
         vhr_report: { select: { id: true, pdf_name: true, pdf_url: true } },
       },
     });
+    return this.pagination.paginateQuery(
+      paginationQuery,
+      'request_logs',
+      data,
+      where,
+    );
   }
 
   async stats(windowMs: number) {

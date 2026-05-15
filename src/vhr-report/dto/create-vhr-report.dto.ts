@@ -11,6 +11,8 @@ export const CreateVhrReportSchema = z
     jsonPayload: z.unknown(),
     pdfFilePath: z.string().min(1).optional(),
     pdfBody: z.instanceof(Uint8Array).optional(),
+    userId: z.number().positive().optional().nullable(),
+    application: z.string().trim().min(1).max(64).optional().nullable(),
   })
   .refine((d) => !!d.pdfFilePath || !!d.pdfBody, {
     message: 'Either pdfFilePath or pdfBody is required',

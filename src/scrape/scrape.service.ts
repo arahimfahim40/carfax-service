@@ -25,7 +25,7 @@ export class ScrapeService {
     private readonly vhrReports: VhrReportService,
   ) { }
 
-  async openCarfaxOnline(vin?: string) {
+  async openCarfaxOnline(vin?: string, ctx?: { userId?: number | null; application?: string | null },) {
     if (vin) {
       const cached = await this.vhrReports.findLatestByVin(vin);
       if (cached) {
@@ -93,6 +93,8 @@ export class ScrapeService {
                 vin,
                 jsonPayload: report,
                 pdfFilePath: reportPdfPath,
+                userId: ctx?.userId ?? null,
+                application: ctx?.application ?? null,
               });
               vhrReportId = row.id;
               reportPdfUrl = uploaded.url;
@@ -178,14 +180,14 @@ export class ScrapeService {
           .catch(() => null);
         throw new UnauthorizedException(
           errorText?.trim() ||
-            `Stuck on email step. URL=${page.url()} title="${await page.title()}"`,
+          `Stuck on email step. URL=${page.url()} title="${await page.title()}"`,
         );
       }
     }
 
     // Verify password field is reachable before fill — better error than a raw timeout
     const passwordVisible = await passwordInput
-      .isVisible({ timeout: 5_000 })
+      .isVisible({ timeout: 7_000 })
       .catch(() => false);
 
     if (!passwordVisible) {
@@ -196,7 +198,7 @@ export class ScrapeService {
         .then((t) => t.slice(0, 400));
       throw new UnauthorizedException(
         `No password field visible. URL=${page.url()} title="${await page.title()}". ` +
-          `Page text: ${visibleText.replace(/\s+/g, ' ')}`,
+        `Page text: ${visibleText.replace(/\s+/g, ' ')}`,
       );
     }
 
@@ -263,7 +265,7 @@ export class ScrapeService {
       this.logger.log('MFA: already on email challenge');
       return;
     }
-console.log("MFA change to email")
+    console.log("MFA change to email")
 
     // Step 1: click "Try another method" and wait for the URL to change
     const tryAnotherBtn = page
@@ -342,8 +344,8 @@ console.log("MFA change to email")
     if (this.isDatadomeBlocked(attempt)) {
       this.logger.warn(
         `*** Datadome CAPTCHA detected ***\n` +
-          `Solve the puzzle in the visible browser window.\n` +
-          `Waiting up to ${captchaTimeoutMs / 1000}s for the datadome cookie to update...`,
+        `Solve the puzzle in the visible browser window.\n` +
+        `Waiting up to ${captchaTimeoutMs / 1000}s for the datadome cookie to update...`,
       );
       const solved = await this.waitForDatadomeCookieChange(
         page,
@@ -408,16 +410,40 @@ console.log("MFA change to email")
       )
       .catch(() => null);
 
-    await page
+    this.logger.log(`Navigating to UI ${uiUrl}`);
+    const navResponse = await page
       .goto(uiUrl, { waitUntil: 'domcontentloaded', timeout: 45_000 })
-      .catch(() => {});
+      .catch((err: Error) => {
+        this.logger.warn(`page.goto failed: ${err.message}`);
+        return null;
+      });
+    this.logger.log(
+      `UI loaded: status=${navResponse?.status() ?? 'n/a'} finalUrl=${page.url()}`,
+    );
 
+    if (this.isOnLoginPage(page)) {
+      this.logger.warn(
+        `Redirected to login page mid-fetch — session expired or context missing`,
+      );
+      return { response: null, error: 'Redirected to login' };
+    }
+
+    this.logger.log(`Waiting up to 45s for VHR API call to ${apiUrl}...`);
     const apiResponse = await apiResponsePromise;
-    if (!apiResponse) return { response: null, error: 'API call not observed' };
+    if (!apiResponse) {
+      this.logger.warn(
+        `VHR API call not observed within 45s. Current URL: ${page.url()}`,
+      );
+      return { response: null, error: 'API call not observed' };
+    }
+    const body = await apiResponse.text();
+    this.logger.log(
+      `VHR API response captured: status=${apiResponse.status()} bodyLen=${body.length}`,
+    );
     return {
       response: {
         status: apiResponse.status(),
-        body: await apiResponse.text(),
+        body,
       },
     };
   }
@@ -468,10 +494,10 @@ console.log("MFA change to email")
       // Wait for the report UI to finish rendering its data
       await page
         .waitForLoadState('networkidle', { timeout: 30_000 })
-        .catch(() => {});
+        .catch(() => { });
 
       // Force print-friendly CSS so the PDF matches the printable view
-      await page.emulateMedia({ media: 'print' }).catch(() => {});
+      await page.emulateMedia({ media: 'print' }).catch(() => { });
 
       await mkdir(REPORTS_DIR, { recursive: true });
       const path = resolve(REPORTS_DIR, `${vin}.pdf`);

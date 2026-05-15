@@ -1,14 +1,14 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
-export const ScrapeCarfaxSchema = z.object({
+export const LookupVinSchema = z.object({
   vin: z
     .string()
     .trim()
     .length(17, 'VIN must be exactly 17 characters')
     .regex(/^[A-HJ-NPR-Z0-9]+$/i, 'VIN contains invalid characters')
-    .optional(),
-  userId: z.coerce.number().int().positive().optional(),
+    .transform((v) => v.toUpperCase()),
+  userId: z.number().int().positive().optional().nullable(),
 });
 
-export class ScrapeCarfaxDto extends createZodDto(ScrapeCarfaxSchema) {}
+export class LookupVinDto extends createZodDto(LookupVinSchema) {}

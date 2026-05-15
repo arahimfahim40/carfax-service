@@ -10,9 +10,12 @@ import {
   ParseIntPipe,
   Post,
   Query,
+  Req,
+  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Request } from 'express';
 import { ScrapeService } from './scrape.service';
 import { MfaCodeService } from './mfa-code.service';
 import { RequestLogService } from '../request-log/request-log.service';
@@ -23,6 +26,7 @@ import { ListLogsDto } from '../request-log/dto/list-logs.dto';
 import { LogStatsDto, parseWindowMs } from '../request-log/dto/log-stats.dto';
 import { ListReportsDto } from '../vhr-report/dto/list-reports.dto';
 import { RequestLogInterceptor } from '../request-log/request-log.interceptor';
+import { ApiKeyGuard } from '../common/guards/api-key.guard';
 
 @ApiTags('scrape')
 @Controller('scrape')
@@ -39,8 +43,14 @@ export class ScrapeController {
   @ApiOperation({
     summary: 'Open carfaxonline.com via Playwright and return basic page info',
   })
-  async openCarfaxOnline(@Query() query: ScrapeCarfaxDto) {
-    return this.scrapeService.openCarfaxOnline(query.vin);
+  async openCarfaxOnline(
+    @Query() query: ScrapeCarfaxDto,
+    @Req() req: Request,
+  ) {
+    return this.scrapeService.openCarfaxOnline(query.vin, {
+      userId: query.userId ?? null,
+      application: req.application ?? null,
+    });
   }
 
   @Post('carfax-mfa-code')
@@ -63,12 +73,16 @@ export class ScrapeController {
   }
 
   @Get('logs')
+  @UseGuards(ApiKeyGuard)
+  @ApiHeader({ name: 'x-api-key', required: true })
   @ApiOperation({ summary: 'List recent request logs (newest first)' })
   listLogs(@Query() query: ListLogsDto) {
     return this.requestLogService.findRecent(query);
   }
 
   @Get('logs/stats')
+  @UseGuards(ApiKeyGuard)
+  @ApiHeader({ name: 'x-api-key', required: true })
   @ApiOperation({
     summary: 'Aggregate counts + avg duration over a time window (e.g. 24h)',
   })
@@ -77,12 +91,16 @@ export class ScrapeController {
   }
 
   @Get('reports')
+  @UseGuards(ApiKeyGuard)
+  @ApiHeader({ name: 'x-api-key', required: true })
   @ApiOperation({ summary: 'List recent VHR reports, optional VIN filter' })
   listReports(@Query() query: ListReportsDto) {
     return this.vhrReportService.findRecent(query);
   }
 
   @Get('reports/:id')
+  @UseGuards(ApiKeyGuard)
+  @ApiHeader({ name: 'x-api-key', required: true })
   @ApiOperation({ summary: 'Get VHR report metadata + a fresh signed PDF URL' })
   async getReport(@Param('id', ParseIntPipe) id: number) {
     const report = await this.vhrReportService.findById(id);
@@ -95,6 +113,8 @@ export class ScrapeController {
   }
 
   @Get('reports/:id/download-url')
+  @UseGuards(ApiKeyGuard)
+  @ApiHeader({ name: 'x-api-key', required: true })
   @ApiOperation({ summary: 'Issue a fresh pre-signed PDF URL for a report' })
   async getReportDownloadUrl(@Param('id', ParseIntPipe) id: number) {
     const report = await this.vhrReportService.findById(id);
@@ -102,5 +122,24 @@ export class ScrapeController {
     const key = this.vhrReportService.extractKeyFromUrl(report.pdf_url);
     if (!key) throw new NotFoundException('PDF key not derivable from URL');
     return { downloadUrl: await this.vhrReportService.getDownloadUrl(key) };
+  }
+
+  @Get('reports/:id/origin')
+  @UseGuards(ApiKeyGuard)
+  @ApiHeader({ name: 'x-api-key', required: true })
+  @ApiOperation({
+    summary:
+      "Returns the user + application that triggered this report's Carfax fetch",
+  })
+  async getReportOrigin(@Param('id', ParseIntPipe) id: number) {
+    const report = await this.vhrReportService.findById(id);
+    if (!report) throw new NotFoundException('Report not found');
+    return {
+      vhrReportId: report.id,
+      vin: report.vin,
+      userId: report.user_id,
+      application: report.application,
+      scrapedAt: report.created_at,
+    };
   }
 }

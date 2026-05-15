@@ -1,8 +1,8 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
+import { PaginationQuerySchema } from '../../common/types/pagination';
 
-export const ListReportsSchema = z.object({
-  limit: z.coerce.number().int().min(1).max(200).optional(),
+export const ListReportsSchema = PaginationQuerySchema.extend({
   vin: z
     .string()
     .trim()
