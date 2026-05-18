@@ -1,0 +1,118 @@
+{
+  "name": "carfax",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {
+          "q": "Verification Code for CARFAX Account",
+          "sender": "CARFAX@noreply.email.carfax.com"
+        }
+      },
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        0
+      ],
+      "id": "2360c2aa-abc2-4821-9ba3-7e6e1364e36a",
+      "name": "Gmail Trigger",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "nNlwwqVxxA0yYXLI",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\n\nconst body =\n  item.snippet ||\n  item.text ||\n  item.textPlain ||\n  item.html ||\n  '';\n\nlet match = body.match(/Verification Code[^\\d]*(\\d{6})/i);\n\n// Fallback: any standalone 6-digit number\nif (!match) match = body.match(/\\b(\\d{6})\\b/);\n\nif (!match) {\n  throw new Error(\n    'No 6-digit code found. Body sample: ' + body.slice(0, 200),\n  );\n}\n\nreturn { code: match[1] };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "d13eeeeb-aba8-4f5f-bd4e-774192ab0d7d",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8003/api/scrape/carfax-mfa-code",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-mfa-secret",
+              "value": "7a9c2e4b1d8f0a3c5e7b9d1f3a5c7e9b1d3f5a7c9e1b3d5f"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"code\": \"{{ $json.code }}\" }\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        416,
+        0
+      ],
+      "id": "6d962ae5-bc9f-47fe-8c40-57c6d97e9e23",
+      "name": "HTTP Request"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "ab82edfd-17a9-4b49-b20e-d52f49d28677",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "608c302b65621cc909c970478d8d0a993b2be3b67f5a8d3663c05e186a728094"
+  },
+  "id": "pz935kU8BuyqCiDF",
+  "tags": []
+}
