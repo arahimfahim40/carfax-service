@@ -11,6 +11,7 @@ import { AdminModule } from './admin/admin.module';
 import { SystemConfigModule } from './common/system-config/system-config.module';
 import { RequestLogModule } from './request-log/request-log.module';
 import { RequestLogInterceptor } from './request-log/request-log.interceptor';
+import { CustomerPortalModule } from './customer-portal/customer-portal.module'
 const ENV = process.env.NODE_ENV;
 @Module({
   imports: [
@@ -26,6 +27,7 @@ const ENV = process.env.NODE_ENV;
     ScrapeModule,
     ApiClientsModule,
     JobsModule,
+    CustomerPortalModule,
     AdminModule,
   ],
   providers: [

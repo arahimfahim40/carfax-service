@@ -4,11 +4,12 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { application_type } from '@db';
 import { ApiClientsService } from 'src/api-clients/api-clients.service';
 
 declare module 'express' {
   interface Request {
-    application?: string;
+    application?: application_type;
     webhookSecret?: string;
   }
 }

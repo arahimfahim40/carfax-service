@@ -24,8 +24,9 @@ export class WebhookService {
     if (job.callback_delivered_at) return;
     if (job.callback_attempts >= MAX_DELIVERY_ATTEMPTS) return;
 
-    const client = await this.prisma.api_clients.findUnique({
-      where: { application: job.application },
+    const client = await this.prisma.api_clients.findFirst({
+      where: { application: job.application, revoked_at: null },
+      orderBy: { created_at: 'desc' },
     });
     if (!client) {
       this.logger.error(

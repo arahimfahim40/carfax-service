@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -11,6 +12,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { application_type } from '@db';
 import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminGuard } from '../common/guards/admin.guard';
 import { ApiClientsService } from '../api-clients/api-clients.service';
@@ -23,10 +25,23 @@ import { VhrReportService } from '../vhr-report/vhr-report.service';
 import { ListReportsDto } from '../vhr-report/dto/list-reports.dto';
 import { AdminScrapeDto } from '../scrape/dto/admin-scrape.dto';
 import { JobsService } from '../jobs/jobs.service';
-import { PlaywrightService } from '../playwright/playwright.service';
 import { LookupVinDto } from 'src/scrape/dto/lookup-vin.dto';
 
-const ADMIN_APPLICATION = 'admin';
+const ADMIN_APPLICATION: application_type = application_type.admin;
+const VALID_APPLICATIONS: application_type[] = [
+  application_type.admin,
+  application_type.customer_portal,
+  application_type.client,
+];
+
+function assertApplication(value: string): application_type {
+  if (!(VALID_APPLICATIONS as string[]).includes(value)) {
+    throw new BadRequestException(
+      `Invalid application "${value}". Allowed: ${VALID_APPLICATIONS.join(', ')}`,
+    );
+  }
+  return value as application_type;
+}
 
 @ApiTags('admin')
 @Controller('admin')
@@ -38,10 +53,7 @@ export class AdminController {
     private readonly requestLogs: RequestLogService,
     private readonly vhrReports: VhrReportService,
     private readonly jobs: JobsService,
-    private readonly playwright: PlaywrightService,
-  ) {}
-
-  // ───────────── api-clients ─────────────
+  ) { }
 
   @Post('api-clients')
   @HttpCode(201)
@@ -64,17 +76,15 @@ export class AdminController {
       'Rotate the API key + webhook secret for an existing client; un-revokes if revoked',
   })
   rotateApiClient(@Param('application') application: string) {
-    return this.apiClients.rotate(application);
+    return this.apiClients.rotate(assertApplication(application));
   }
 
   @Delete('api-clients/:application')
   @HttpCode(204)
   @ApiOperation({ summary: 'Revoke a client (soft-delete; key stops working)' })
   revokeApiClient(@Param('application') application: string) {
-    return this.apiClients.revoke(application);
+    return this.apiClients.revoke(assertApplication(application));
   }
-
-  // ───────────── logs ─────────────
 
   @Get('logs')
   @ApiOperation({
@@ -94,7 +104,6 @@ export class AdminController {
     return this.requestLogs.stats(parseWindowMs(query.window));
   }
 
-  // ───────────── reports ─────────────
 
   @Get('reports')
   @ApiOperation({
@@ -137,8 +146,6 @@ export class AdminController {
     };
   }
 
-  // ───────────── scrape (async via jobs queue) ─────────────
-
   @Post('scrape/carfax-online')
   @HttpCode(202)
   @ApiOperation({
@@ -152,7 +159,6 @@ export class AdminController {
     } as any);
   }
 
-  // ───────────── jobs (admin view, all applications) ─────────────
 
   @Get('jobs')
   @ApiOperation({
@@ -161,8 +167,9 @@ export class AdminController {
   listJobs(
     @Query('limit') limit?: string,
     @Query('status') status?: 'queued' | 'processing' | 'done' | 'failed',
+    @Query('application') application?: string,
   ) {
-    return this.jobs.listAllForAdmin(limit ? Number(limit) : 20, status);
+    return this.jobs.listAllForAdmin(limit ? Number(limit) : 20, status, application);
   }
 
   @Get('jobs/:jobId')
@@ -174,54 +181,32 @@ export class AdminController {
   }
 
   @Post('scrape/lookup')
-@HttpCode(200)
-@ApiOperation({
-  summary:
-    'VIN lookup: returns cached report if present, else enqueues a job. Single round-trip from CRM.',
-})
-async lookupVin(@Body() body: LookupVinDto) {
-  // 1) Cache lookup
-  const cached = await this.vhrReports.findLatestByVin(body.vin);
-  if (cached) {
-    const key = this.vhrReports.extractKeyFromUrl(cached.pdf_url);
-    const downloadUrl = key
-      ? await this.vhrReports.getDownloadUrl(key)
-      : null;
-    return {
-      source: 'cache' as const,
-      vhrReportId: cached.id,
-      vin: cached.vin,
-      pdfName: cached.pdf_name,
-      downloadUrl,
-    };
-  }
-
-  // 2) Queue a job
-  const job = await this.jobs.create(ADMIN_APPLICATION, {
-    vin: body.vin,
-    userId: body.userId ?? null,
-  } as any);
-
-  return {
-    source: 'queued' as const,
-    jobId: job.jobId,
-    status: job.status,
-    vin: body.vin,
-  };
-}
-
-  // ───────────── browserbase ─────────────
-
-  @Post('browserbase/rotate-context')
+  @HttpCode(200)
   @ApiOperation({
     summary:
-      'Create a fresh Browserbase context and persist it in system_config. Next scrape will require a full login + MFA to imprint the new context.',
+      'VIN lookup: returns cached report if present, else enqueues a job. Single round-trip from CRM.',
   })
-  async rotateBrowserbaseContext() {
-    const contextId = await this.playwright.rotateContext();
-    return {
-      contextId,
-      note: 'Next scrape will require a full login + MFA to imprint the new context.',
-    };
+  async lookupVin(@Body() body: LookupVinDto) {
+    const cached = await this.vhrReports.findLatestByVin(body.vin);
+    if (cached) {
+      const key = this.vhrReports.extractKeyFromUrl(cached.pdf_url);
+      const downloadUrl = key
+        ? await this.vhrReports.getDownloadUrl(key)
+        : null;
+      return {
+        source: 'cache' as const,
+        vhrReportId: cached.id,
+        vin: cached.vin,
+        pdfName: cached.pdf_name,
+        downloadUrl,
+      };
+    }
+    const job = await this.jobs.create(ADMIN_APPLICATION, {
+      vin: body.vin,
+      userId: body.userId ?? null,
+    } as any);
+
+    return job;
   }
+
 }

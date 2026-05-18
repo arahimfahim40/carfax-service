@@ -23,6 +23,12 @@ enum job_status {
   failed
 }
 
+enum application_type {
+  admin
+  customer_portal
+  client
+}
+
 model request_logs {
   id Int @id @default(autoincrement())
 
@@ -66,7 +72,7 @@ model vhr_reports {
   pdf_url  String @db.VarChar(1000)
 
   user_id     Int? 
-  application String? @db.VarChar(64)
+  application application_type?
   request_logs request_logs[]
   scrape_jobs scrape_jobs[]
   @@index([vin])
@@ -79,7 +85,7 @@ model scrape_jobs {
   status       job_status @default(queued)
 
   user_id      Int?
-  application  String     @db.VarChar(64)
+  application  application_type
 
   attempts     Int        @default(0)
   max_attempts Int        @default(3)
@@ -109,7 +115,7 @@ model scrape_jobs {
 
 model api_clients {
   id              Int       @id @default(autoincrement())
-  application     String    @unique @db.VarChar(64)
+  application     application_type
   api_key_hash    String    @unique @db.VarChar(128)
   webhook_secret  String    @db.VarChar(128)
   revoked_at      DateTime?

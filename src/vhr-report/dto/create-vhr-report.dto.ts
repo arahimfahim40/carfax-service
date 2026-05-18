@@ -12,7 +12,10 @@ export const CreateVhrReportSchema = z
     pdfFilePath: z.string().min(1).optional(),
     pdfBody: z.instanceof(Uint8Array).optional(),
     userId: z.number().positive().optional().nullable(),
-    application: z.string().trim().min(1).max(64).optional().nullable(),
+    application: z
+      .enum(['admin', 'customer_portal', 'client'])
+      .optional()
+      .nullable(),
   })
   .refine((d) => !!d.pdfFilePath || !!d.pdfBody, {
     message: 'Either pdfFilePath or pdfBody is required',

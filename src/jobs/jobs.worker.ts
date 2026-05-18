@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ScrapeService } from '../scrape/scrape.service';
 import { VhrReportService } from '../vhr-report/vhr-report.service';
+import { RequestLogService } from '../request-log/request-log.service';
 
 import { PrismaService } from 'src/common/prisma/prisma.service';
 import { WebhookService } from './webhook.service';
@@ -23,6 +24,7 @@ export class JobsWorker implements OnModuleInit, OnModuleDestroy {
     private readonly scrape: ScrapeService,
     private readonly vhrReports: VhrReportService,
     private readonly webhook: WebhookService,
+    private readonly requestLog: RequestLogService,
   ) {}
 
   onModuleInit() {
@@ -147,6 +149,23 @@ export class JobsWorker implements OnModuleInit, OnModuleDestroy {
       this.logger.error(
         `Job ${jobId} failed permanently (${code}): ${message}`,
       );
+
+      await this.requestLog
+        .logError({
+          method: 'JOB',
+          path: `/jobs/${jobId}`,
+          httpStatus: 500,
+          durationMs: Date.now() - job.created_at.getTime(),
+          errorCode: code,
+          errorMessage: message,
+          vin: job.vin,
+        })
+        .catch((logErr) =>
+          this.logger.error(
+            `Failed to persist job error log: ${(logErr as Error).message}`,
+          ),
+        );
+
       if (updated.callback_url) await this.webhook.deliver(updated.id);
     }
   }

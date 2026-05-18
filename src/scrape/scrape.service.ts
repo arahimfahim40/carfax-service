@@ -7,6 +7,7 @@ import {
 import { mkdir, writeFile } from 'fs/promises';
 import { resolve } from 'path';
 import { Page } from 'playwright';
+import { application_type } from '@db';
 import { PlaywrightService } from '../playwright/playwright.service';
 import { MfaCodeService } from './mfa-code.service';
 import { VhrReportService } from '../vhr-report/vhr-report.service';
@@ -25,7 +26,7 @@ export class ScrapeService {
     private readonly vhrReports: VhrReportService,
   ) { }
 
-  async openCarfaxOnline(vin?: string, ctx?: { userId?: number | null; application?: string | null },) {
+  async openCarfaxOnline(vin?: string, ctx?: { userId?: number | null; application?: application_type | null },) {
     if (vin) {
       const cached = await this.vhrReports.findLatestByVin(vin);
       if (cached) {
@@ -142,12 +143,20 @@ export class ScrapeService {
   private async login(page: Page): Promise<void> {
     const username = process.env.CARFAX_USERNAME;
     const password = process.env.CARFAX_PASSWORD;
-    console.log(username, password)
 
     if (!username || !password) {
       throw new InternalServerErrorException(
         'CARFAX_USERNAME / CARFAX_PASSWORD are not set in .env',
       );
+    }
+
+    if (page.url().includes('/u/mfa-')) {
+      this.logger.log(
+        `Login start: URL=${page.url()} — already on MFA challenge`,
+      );
+      await this.runMfaChallenge(page);
+      this.logger.log(`Login complete, landed on ${page.url()}`);
+      return;
     }
 
     const emailInput = page
@@ -173,14 +182,31 @@ export class ScrapeService {
       try {
         await passwordInput.waitFor({ state: 'visible', timeout: 20_000 });
       } catch {
+        if (page.url().includes('/u/mfa-')) {
+          this.logger.log(
+            `Login: email accepted, redirected straight to MFA (${page.url()})`,
+          );
+          await this.runMfaChallenge(page);
+          this.logger.log(`Login complete, landed on ${page.url()}`);
+          return;
+        }
+
         const errorText = await page
           .locator('.ulp-input-error-message, .ulp-error-info:not(.aria-error-check)')
           .first()
           .textContent()
           .catch(() => null);
+        if (errorText?.trim()) {
+          throw new UnauthorizedException(errorText.trim());
+        }
+
+        const bodySnippet = await page
+          .locator('body')
+          .innerText()
+          .catch(() => '')
+          .then((t) => t.slice(0, 400).replace(/\s+/g, ' '));
         throw new UnauthorizedException(
-          errorText?.trim() ||
-          `Stuck on email step. URL=${page.url()} title="${await page.title()}"`,
+          `Stuck on email step. URL=${page.url()} title="${await page.title()}" body="${bodySnippet}"`,
         );
       }
     }
@@ -206,8 +232,6 @@ export class ScrapeService {
     await passwordInput.fill(password);
     await page.locator('button[type="submit"]').first().click();
 
-    const mfaTimeoutMs = Number(process.env.CARFAX_MFA_TIMEOUT_MS ?? 300_000);
-
     try {
       await page.waitForURL((u) => !u.toString().includes('auth.carfax.com'), {
         timeout: 15_000,
@@ -222,42 +246,46 @@ export class ScrapeService {
         throw new UnauthorizedException(passwordError.trim());
       }
 
-      await this.switchMfaToEmail(page);
-
-      this.logger.warn(
-        `MFA challenge: waiting for code from n8n (or manual entry) — up to ${mfaTimeoutMs / 1000}s...`,
-      );
-
-      // Try to receive the code from n8n and type it; fall back to manual entry
-      try {
-        const code = await this.mfaCodeService.waitForCode(mfaTimeoutMs);
-        await page
-          .locator(
-            'input[name="code"], input[autocomplete="one-time-code"], input[inputmode="numeric"]',
-          )
-          .first()
-          .fill(code);
-        await page.locator('button[type="submit"]').first().click();
-        this.logger.log('MFA: code submitted from n8n');
-      } catch (err) {
-        this.logger.warn(
-          `MFA: did not receive code from n8n (${(err as Error).message}) — finish in the browser window`,
-        );
-      }
-
-      try {
-        await page.waitForURL(
-          (u) => !u.toString().includes('auth.carfax.com'),
-          { timeout: mfaTimeoutMs },
-        );
-      } catch {
-        throw new UnauthorizedException(
-          'Carfax MFA not completed in time. Re-trigger the request and finish MFA.',
-        );
-      }
+      await this.runMfaChallenge(page);
     }
 
     this.logger.log(`Login complete, landed on ${page.url()}`);
+  }
+
+  private async runMfaChallenge(page: Page): Promise<void> {
+    const mfaTimeoutMs = Number(process.env.CARFAX_MFA_TIMEOUT_MS ?? 300_000);
+    await this.switchMfaToEmail(page);
+
+    this.logger.warn(
+      `MFA challenge: waiting for code from n8n (or manual entry) — up to ${mfaTimeoutMs / 1000}s...`,
+    );
+
+    try {
+      const code = await this.mfaCodeService.waitForCode(mfaTimeoutMs);
+      await page
+        .locator(
+          'input[name="code"], input[autocomplete="one-time-code"], input[inputmode="numeric"]',
+        )
+        .first()
+        .fill(code);
+      await page.locator('button[type="submit"]').first().click();
+      this.logger.log('MFA: code submitted from n8n');
+    } catch (err) {
+      this.logger.warn(
+        `MFA: did not receive code from n8n (${(err as Error).message}) — finish in the browser window`,
+      );
+    }
+
+    try {
+      await page.waitForURL(
+        (u) => !u.toString().includes('auth.carfax.com'),
+        { timeout: mfaTimeoutMs },
+      );
+    } catch {
+      throw new UnauthorizedException(
+        'Carfax MFA not completed in time. Re-trigger the request and finish MFA.',
+      );
+    }
   }
 
   private async switchMfaToEmail(page: Page): Promise<void> {

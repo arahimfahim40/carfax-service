@@ -1,9 +1,10 @@
 import { basename } from 'node:path';
 import { Injectable, Logger } from '@nestjs/common';
-// import { Prisma } from '@db';
+import { application_type } from '@db';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { PaginationProvider } from '../common/providers/pagination.provider';
 import { FileUploadService } from '../common/service/file-upload';
+import { PaginationQueryDto } from '../common/types/pagination';
 import { CreateVhrReportDto } from './dto/create-vhr-report.dto';
 import { ListReportsDto } from './dto/list-reports.dto';
 
@@ -69,6 +70,55 @@ export class VhrReportService {
       paginationQuery,
       'vhr_reports',
       data,
+      where,
+    );
+  }
+
+  async findRecentForCustomer(
+    filters: PaginationQueryDto & { user_id: number; vin?: string },
+  ) {
+    const { user_id, vin, ...paginationQuery } = filters;
+    const { skip, take } = this.pagination.resolve(paginationQuery);
+    const where = {
+      ...(vin ? { vin } : {}),
+      scrape_jobs: {
+        some: {
+          user_id,
+          application: application_type.customer_portal,
+        },
+      },
+    };
+    const data = await this.prisma.vhr_reports.findMany({
+      where,
+      orderBy: { created_at: 'desc' },
+      include: {
+        scrape_jobs: {
+          where: { user_id, status: 'done' },
+          orderBy: { updated_at: 'desc' },
+          take: 1,
+          select: {
+            updated_at: true
+          }
+        },
+      },
+      skip,
+      take,
+    });
+    return this.pagination.paginateQuery(
+      paginationQuery,
+      'vhr_reports',
+      data.map((r) => {
+        const job = r.scrape_jobs[0];
+        return {
+          id: r.id,
+          vin: r.vin,
+          pdf_name: r.pdf_name,
+          pdf_url: r.pdf_url,
+          user_id: r.user_id,
+          application: r.application,
+          created_at: job?.updated_at ?? r.created_at,
+        };
+      }),
       where,
     );
   }

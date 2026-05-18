@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@db';
+import { Prisma, application_type } from '@db';
 import { CreateJobDto } from './dto/create-job.dto';
 import { PrismaService } from 'src/common/prisma/prisma.service';
 
@@ -7,9 +7,9 @@ import { PrismaService } from 'src/common/prisma/prisma.service';
 export class JobsService {
   private readonly logger = new Logger(JobsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
-  async create(application: string, dto: CreateJobDto) {
+  async create(application: application_type, dto: CreateJobDto) {
     const vin = dto.vin.toUpperCase();
     const cached = await this.prisma.vhr_reports.findFirst({
       where: { vin },
@@ -57,7 +57,7 @@ export class JobsService {
     return { jobId: job.id, status: job.status, cached: false };
   }
 
-  async findById(application: string, jobId: string) {
+  async findById(application: application_type, jobId: string) {
     const job = await this.prisma.scrape_jobs.findFirst({
       where: { id: jobId, application },
     });
@@ -74,10 +74,12 @@ export class JobsService {
     return this.serialize(job);
   }
 
-  /** Admin variant: list all jobs across all applications, newest first. */
-  async listAllForAdmin(limit = 20, status?: 'queued' | 'processing' | 'done' | 'failed') {
+  async listAllForAdmin(limit = 20, status?: 'queued' | 'processing' | 'done' | 'failed', application?: string,) {
+     const where: Prisma.scrape_jobsWhereInput = {};
+    if (status) where.status = status;
+    if (application) where.application = application as application_type;
     const jobs = await this.prisma.scrape_jobs.findMany({
-      where: status ? { status } : {},
+      where,
       orderBy: { created_at: 'desc' },
       take: Math.min(limit, 100),
     });

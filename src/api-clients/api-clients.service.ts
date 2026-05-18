@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash, randomBytes, timingSafeEqual } from 'crypto';
+import { application_type } from '@db';
 import { PrismaService } from 'src/common/prisma/prisma.service';
 import { PaginationProvider } from 'src/common/providers/pagination.provider';
 import { PaginationQueryDto } from 'src/common/types/pagination';
@@ -55,11 +56,15 @@ export class ApiClientsService {
     };
   }
 
-  async revoke(application: string) {
-    await this.prisma.api_clients.update({
-      where: { application },
+  async revoke(application: application_type) {
+    const result = await this.prisma.api_clients.updateMany({
+      where: { application, revoked_at: null },
       data: { revoked_at: new Date() },
     });
+    this.logger.warn(
+      `Revoked ${result.count} api_client key(s) for application=${application}`,
+    );
+    return { revokedCount: result.count };
   }
   async list(paginationQuery: PaginationQueryDto) {
     const { skip, take } = this.pagination.resolve(paginationQuery);
@@ -81,18 +86,29 @@ export class ApiClientsService {
     );
   }
 
-  async rotate(application: string) {
+  async rotate(application: application_type) {
+    const target = await this.prisma.api_clients.findFirst({
+      where: { application, revoked_at: null },
+      orderBy: { created_at: 'desc' },
+    });
+    if (!target) {
+      throw new Error(
+        `No active api_clients found for application=${application}`,
+      );
+    }
     const rawKey = randomBytes(32).toString('hex');
     const webhookSecret = randomBytes(32).toString('hex');
     await this.prisma.api_clients.update({
-      where: { application },
+      where: { id: target.id },
       data: {
         api_key_hash: this.hashKey(rawKey),
         webhook_secret: webhookSecret,
         revoked_at: null,
       },
     });
-    this.logger.warn(`Rotated API client: ${application}`);
+    this.logger.warn(
+      `Rotated api_client id=${target.id} (application=${application})`,
+    );
     return { application, apiKey: rawKey, webhookSecret };
   }
 }
