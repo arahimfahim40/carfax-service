@@ -217,6 +217,15 @@ export class ScrapeService {
       .catch(() => false);
 
     if (!passwordVisible) {
+      if (page.url().includes('/u/mfa-')) {
+        this.logger.log(
+          `Login: no email/password prompt — Carfax went straight to MFA (${page.url()})`,
+        );
+        await this.runMfaChallenge(page);
+        this.logger.log(`Login complete, landed on ${page.url()}`);
+        return;
+      }
+
       const visibleText = await page
         .locator('body')
         .innerText()

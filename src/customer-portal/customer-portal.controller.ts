@@ -35,12 +35,13 @@ export class CustomerPortalController {
   @HttpCode(202)
   @ApiOperation({
     summary:
-      'Customer-portal-triggered Carfax fetch. Enqueues a job stamped with application="customer_portal" + the company id as user_id, and returns immediately with jobId.',
+      'Customer-portal-triggered Carfax fetch. Enqueues a job stamped with application="customer_portal" + the company id as user_id, and returns immediately with jobId. If CARFAX_INTERNAL_CALLBACK_URL is set, completion is POSTed back to the CRM (same endpoint as admin jobs).',
   })
   async scrapeCarfax(@Body() body: AdminScrapeDto) {
     return this.jobs.create(application_type.customer_portal, {
       vin: body.vin,
       userId: body.userId ?? null,
+      callbackUrl: process.env.CARFAX_INTERNAL_CALLBACK_URL || undefined,
     } as any);
   }
 

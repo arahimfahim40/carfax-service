@@ -88,26 +88,42 @@ export class VhrReportService {
         },
       },
     };
-    const data = await this.prisma.vhr_reports.findMany({
-      where,
-      orderBy: { created_at: 'desc' },
-      include: {
-        scrape_jobs: {
-          where: { user_id, status: 'done' },
-          orderBy: { updated_at: 'desc' },
-          take: 1,
-          select: {
-            updated_at: true
-          }
+
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthlyWhere = {
+      scrape_jobs: {
+        some: {
+          user_id,
+          application: application_type.customer_portal,
+          updated_at: { gte: startOfMonth },
         },
       },
-      skip,
-      take,
-    });
-    return this.pagination.paginateQuery(
-      paginationQuery,
-      'vhr_reports',
-      data.map((r) => {
+    };
+
+    const [data, allTimeCount, thisMonthCount] = await Promise.all([
+      this.prisma.vhr_reports.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        include: {
+          scrape_jobs: {
+            where: { user_id, status: 'done' },
+            orderBy: { updated_at: 'desc' },
+            take: 1,
+            select: { updated_at: true },
+          },
+        },
+        skip,
+        take,
+      }),
+      this.prisma.vhr_reports.count({ where }),
+      this.prisma.vhr_reports.count({ where: monthlyWhere }),
+    ]);
+
+    const { page, limit } = this.pagination.resolve(paginationQuery);
+    return {
+      result: true,
+      data: data.map((r) => {
         const job = r.scrape_jobs[0];
         return {
           id: r.id,
@@ -119,8 +135,14 @@ export class VhrReportService {
           created_at: job?.updated_at ?? r.created_at,
         };
       }),
-      where,
-    );
+      meta: {
+        itemsPerPage: limit,
+        totalItems: allTimeCount,
+        currentPage: page,
+        totalPages: limit > 0 ? Math.ceil(allTimeCount / limit) : 0,
+        thisMonthCount,
+      },
+    };
   }
 
   getDownloadUrl(key: string, ttlSeconds?: number) {

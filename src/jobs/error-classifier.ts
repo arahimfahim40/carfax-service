@@ -41,7 +41,7 @@ function pickCode(err: unknown, msg: string): ErrorCode {
   }
   if (/timeout|timed out/i.test(msg)) return 'PAGE_TIMEOUT';
   if (/invalid vin|vin not found|404/i.test(msg)) return 'INVALID_VIN';
-  if (/locked|suspended/i.test(msg)) return 'ACCOUNT_LOCKED';
+  if (/\b(account\s+locked|locked\s+out|suspended)\b/i.test(msg)) return 'ACCOUNT_LOCKED';
   return 'UNKNOWN';
 }
 

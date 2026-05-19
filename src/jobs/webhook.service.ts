@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createHmac } from 'crypto';
-import { ApiClientsService } from '../api-clients/api-clients.service';
 import { PrismaService } from 'src/common/prisma/prisma.service';
 
 const DELIVERY_BACKOFF_MS = [0, 30_000, 120_000, 600_000, 3_600_000];
@@ -10,10 +9,7 @@ const MAX_DELIVERY_ATTEMPTS = 5;
 export class WebhookService {
   private readonly logger = new Logger(WebhookService.name);
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly apiClients: ApiClientsService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async deliver(jobId: string) {
     const job = await this.prisma.scrape_jobs.findUniqueOrThrow({
@@ -24,31 +20,31 @@ export class WebhookService {
     if (job.callback_delivered_at) return;
     if (job.callback_attempts >= MAX_DELIVERY_ATTEMPTS) return;
 
-    const client = await this.prisma.api_clients.findFirst({
-      where: { application: job.application, revoked_at: null },
-      orderBy: { created_at: 'desc' },
-    });
-    if (!client) {
+    const auth = await this.resolveAuth(job.application);
+    if (!auth) {
       this.logger.error(
-        `No api_client for application=${job.application}; cannot sign webhook`,
+        `No webhook auth for application=${job.application}; cannot deliver webhook`,
       );
       return;
     }
 
     const body = this.buildPayload(job);
     const raw = JSON.stringify(body);
-    const signature =
-      'sha256=' +
-      createHmac('sha256', client.webhook_secret).update(raw).digest('hex');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-Carfax-Event': `job.${job.status}`,
+    };
+    if (auth.kind === 'hmac') {
+      headers['X-Carfax-Signature'] =
+        'sha256=' + createHmac('sha256', auth.secret).update(raw).digest('hex');
+    } else {
+      headers['X-Carfax-Internal-Token'] = auth.secret;
+    }
 
     try {
       const res = await fetch(job.callback_url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Carfax-Signature': signature,
-          'X-Carfax-Event': `job.${job.status}`,
-        },
+        headers,
         body: raw,
         signal: AbortSignal.timeout(10_000),
       });
@@ -81,6 +77,20 @@ export class WebhookService {
           (giveUp ? ' — giving up' : ` — retry in ${wait}ms`),
       );
     }
+  }
+
+  private async resolveAuth(
+    application: string,
+  ): Promise<{ kind: 'hmac' | 'bearer'; secret: string } | null> {
+    if (application === 'admin' || application === 'customer_portal') {
+      const token = process.env.CARFAX_INTERNAL_WEBHOOK_SECRET;
+      return token ? { kind: 'bearer', secret: token } : null;
+    }
+    const client = await this.prisma.api_clients.findFirst({
+      where: { application: application as any, revoked_at: null },
+      orderBy: { created_at: 'desc' },
+    });
+    return client ? { kind: 'hmac', secret: client.webhook_secret } : null;
   }
 
   /** Background poller: retries undelivered webhooks. Started in module init. */

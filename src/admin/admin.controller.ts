@@ -150,12 +150,13 @@ export class AdminController {
   @HttpCode(202)
   @ApiOperation({
     summary:
-      'Admin-triggered Carfax fetch. Enqueues a job and returns immediately with jobId — poll /admin/jobs/:jobId for status.',
+      'Admin-triggered Carfax fetch. Enqueues a job and returns immediately with jobId. If CARFAX_INTERNAL_CALLBACK_URL is set, the worker will POST job completion to it (signed with CARFAX_INTERNAL_WEBHOOK_SECRET) so the caller can avoid polling.',
   })
   async scrapeCarfax(@Body() body: AdminScrapeDto) {
     return this.jobs.create(ADMIN_APPLICATION, {
       vin: body.vin,
       userId: body.userId ?? null,
+      callbackUrl: process.env.CARFAX_INTERNAL_CALLBACK_URL || undefined,
     } as any);
   }
 
@@ -204,6 +205,7 @@ export class AdminController {
     const job = await this.jobs.create(ADMIN_APPLICATION, {
       vin: body.vin,
       userId: body.userId ?? null,
+      callbackUrl: process.env.CARFAX_INTERNAL_CALLBACK_URL || undefined,
     } as any);
 
     return job;
